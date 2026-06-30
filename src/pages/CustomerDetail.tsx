@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowRight, Phone, MapPin, User, Receipt, CreditCard, TrendingUp } from 'lucide-react';
-import { customerApi, saleApi, paymentApi } from '../db';
-import type { Customer, Sale, Payment } from '../types';
+import { ArrowRight, Phone, MapPin, User, Receipt, CreditCard, Eye } from 'lucide-react';
+import { customerApi, saleApi, paymentApi, productApi } from '../db';
+import type { Customer, Sale, Payment, Product } from '../types';
+import Modal from '../components/Modal';
+
+interface SaleWithItems extends Sale {
+  items?: any[];
+}
 
 export default function CustomerDetail() {
   const { id } = useParams();
@@ -10,9 +15,13 @@ export default function CustomerDetail() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [sales, setSales] = useState<Sale[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [balance, setBalance] = useState(0);
   const [totalSales, setTotalSales] = useState(0);
   const [totalProfit, setTotalProfit] = useState(0);
+
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [viewingSale, setViewingSale] = useState<SaleWithItems | null>(null);
 
   useEffect(() => {
     if (id) loadData();
@@ -26,12 +35,17 @@ export default function CustomerDetail() {
     const s = await saleApi.getAll();
     const customerSales = s.filter(x => x.customerId === id);
     setSales(customerSales);
-    setTotalSales(customerSales.reduce((sum, x) => sum + x.finalAmount, 0));
+
+    // مهم: مجموع فروش رو در یک متغیر محلی نگه می‌داریم
+    // چون آپدیت state (setTotalSales) آسنکرون هست و نمی‌تونیم
+    // بلافاصله بعدش به state تازه‌ای که ست کردیم متکی باشیم.
+    const totalSalesAmount = customerSales.reduce((sum, x) => sum + x.finalAmount, 0);
+    setTotalSales(totalSalesAmount);
 
     const p = await paymentApi.getByPerson(id!);
     setPayments(p);
     const paid = p.reduce((sum, x) => sum + x.amount, 0);
-    setBalance(totalSales - paid);
+    setBalance(totalSalesAmount - paid);
 
     let profit = 0;
     for (const sale of customerSales) {
@@ -39,6 +53,15 @@ export default function CustomerDetail() {
       profit += items.reduce((s, item) => s + item.profit, 0);
     }
     setTotalProfit(profit);
+
+    const prods = await productApi.getAll();
+    setProducts(prods);
+  };
+
+  const handleViewSale = async (sale: Sale) => {
+    const items = await saleApi.getItems(sale.id);
+    setViewingSale({ ...sale, items });
+    setViewModalOpen(true);
   };
 
   if (!customer) return null;
@@ -99,12 +122,20 @@ export default function CustomerDetail() {
           ) : (
             <div className="space-y-2 max-h-96 overflow-auto">
               {sales.map(sale => (
-                <div key={sale.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+                <div
+                  key={sale.id}
+                  onClick={() => handleViewSale(sale)}
+                  className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  title="برای مشاهده جزئیات کلیک کنید"
+                >
                   <div>
                     <span className="text-sm font-medium text-gray-900 dark:text-white">فاکتور {sale.invoiceNumber}</span>
                     <span className="text-xs text-gray-500 dark:text-gray-400 mr-2">{sale.date}</span>
                   </div>
-                  <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{sale.finalAmount.toLocaleString('fa-IR')} تومان</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{sale.finalAmount.toLocaleString('fa-IR')} تومان</span>
+                    <Eye size={14} className="text-gray-400 dark:text-gray-500" />
+                  </div>
                 </div>
               ))}
             </div>
@@ -134,6 +165,42 @@ export default function CustomerDetail() {
           )}
         </div>
       </div>
+
+      <Modal isOpen={viewModalOpen} onClose={() => setViewModalOpen(false)} title="جزئیات فروش" size="md">
+        {viewingSale && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div><span className="text-gray-500 dark:text-gray-400">فاکتور:</span> <span className="font-medium text-gray-900 dark:text-white">{viewingSale.invoiceNumber}</span></div>
+              <div><span className="text-gray-500 dark:text-gray-400">تاریخ:</span> <span className="font-medium text-gray-900 dark:text-white">{viewingSale.date}</span></div>
+              <div><span className="text-gray-500 dark:text-gray-400">تخفیف:</span> <span className="font-medium text-gray-900 dark:text-white">{viewingSale.discount.toLocaleString('fa-IR')}</span></div>
+            </div>
+            <table className="w-full border border-gray-200 dark:border-gray-700 rounded-lg">
+              <thead className="bg-gray-50 dark:bg-gray-800/50"><tr>
+                <th className="text-right px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300">کالا</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300">تعداد</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300">قیمت</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300">جمع</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300">سود</th>
+              </tr></thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {viewingSale.items?.map((item: any) => (
+                  <tr key={item.id}>
+                    <td className="px-3 py-2 text-sm text-gray-900 dark:text-white">{products.find(p => p.id === item.productId)?.name || 'کالا'}</td>
+                    <td className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300">{item.qty}</td>
+                    <td className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300">{item.unitPrice.toLocaleString('fa-IR')}</td>
+                    <td className="px-3 py-2 text-sm font-medium text-gray-900 dark:text-white">{item.total.toLocaleString('fa-IR')}</td>
+                    <td className="px-3 py-2 text-sm text-green-600 dark:text-green-400">{item.profit.toLocaleString('fa-IR')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="text-left">
+              <span className="text-sm text-gray-500 dark:text-gray-400">مبلغ نهایی: </span>
+              <span className="text-lg font-bold text-gray-900 dark:text-white">{viewingSale.finalAmount.toLocaleString('fa-IR')} تومان</span>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
