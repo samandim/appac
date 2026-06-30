@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, ShoppingBag, User, Calendar, Eye, Receipt } from 'lucide-react';
+import { Plus, Trash2, ShoppingBag, User, Calendar, Eye, Receipt, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { saleApi, customerApi, productApi } from '../db';
 import type { Sale, Customer, Product } from '../types';
 import Modal from '../components/Modal';
@@ -10,6 +10,9 @@ interface SaleWithDetails extends Sale {
   customerName?: string;
   items: any[];
 }
+
+type SortField = 'date' | 'amount';
+type SortDirection = 'asc' | 'desc';
 
 export default function Sales() {
   const [sales, setSales] = useState<SaleWithDetails[]>([]);
@@ -26,6 +29,9 @@ export default function Sales() {
   ]);
   const navigate = useNavigate();
 
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
@@ -40,6 +46,30 @@ export default function Sales() {
       return { ...s, customerName: c?.name, items };
     }));
     setSales(full);
+  };
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortedSales = [...sales].sort((a, b) => {
+    if (!sortField) return 0;
+    if (sortField === 'date') {
+      return sortDirection === 'asc' ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date);
+    }
+    return sortDirection === 'asc' ? a.finalAmount - b.finalAmount : b.finalAmount - a.finalAmount;
+  });
+
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) return <ArrowUpDown size={12} className="text-gray-400 dark:text-gray-500" />;
+    return sortDirection === 'asc'
+      ? <ArrowUp size={12} className="text-blue-600 dark:text-blue-400" />
+      : <ArrowDown size={12} className="text-blue-600 dark:text-blue-400" />;
   };
 
   const addItem = () => setItems([...items, { productId: '', qty: 1, unitPrice: 0 }]);
@@ -100,13 +130,27 @@ export default function Sales() {
             <tr>
               <th className="text-right px-4 py-3 text-sm font-medium text-gray-600 dark:text-gray-300">شماره فاکتور</th>
               <th className="text-right px-4 py-3 text-sm font-medium text-gray-600 dark:text-gray-300">مشتری</th>
-              <th className="text-right px-4 py-3 text-sm font-medium text-gray-600 dark:text-gray-300">تاریخ</th>
-              <th className="text-right px-4 py-3 text-sm font-medium text-gray-600 dark:text-gray-300">مبلغ</th>
+              <th
+                onClick={() => handleSort('date')}
+                className="text-right px-4 py-3 text-sm font-medium text-gray-600 dark:text-gray-300 cursor-pointer select-none hover:text-gray-900 dark:hover:text-white"
+              >
+                <div className="flex items-center gap-1">
+                  تاریخ <SortIcon field="date" />
+                </div>
+              </th>
+              <th
+                onClick={() => handleSort('amount')}
+                className="text-right px-4 py-3 text-sm font-medium text-gray-600 dark:text-gray-300 cursor-pointer select-none hover:text-gray-900 dark:hover:text-white"
+              >
+                <div className="flex items-center gap-1">
+                  مبلغ <SortIcon field="amount" />
+                </div>
+              </th>
               <th className="text-right px-4 py-3 text-sm font-medium text-gray-600 dark:text-gray-300">عملیات</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {sales.map(sale => (
+            {sortedSales.map(sale => (
               <tr key={sale.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
@@ -135,7 +179,7 @@ export default function Sales() {
             ))}
           </tbody>
         </table>
-        {sales.length === 0 && <div className="text-center py-8 text-gray-500 dark:text-gray-400">هیچ فروشی ثبت نشده</div>}
+        {sortedSales.length === 0 && <div className="text-center py-8 text-gray-500 dark:text-gray-400">هیچ فروشی ثبت نشده</div>}
       </div>
 
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="فروش جدید" size="lg">
